@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Talknik Monkey</title>
+    <style>
+        :root {
+            --glow: #00ffa3;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        body { 
+            background: #010a06; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            font-family: 'Segoe UI', sans-serif; 
+            overflow: hidden; 
+            color: white;
+        }
+        
+        #stage { 
+            position: relative; 
+            width: 100%; 
+            max-width: 400px; 
+            height: 90vh; 
+            border: 1px solid rgba(255,255,255,0.1);
+            background: #000;
+            overflow: hidden;
+            border-radius: 15px;
+        }
+
+        canvas { width: 100%; height: 100%; display: block; background: linear-gradient(180deg, #0f2027, #203a43); }
+
+        /* Elite Interface */
+        .hud { position: absolute; top: 15px; width: 100%; text-align: center; pointer-events: none; z-index: 5; }
+        .score-box { background: var(--glass); backdrop-filter: blur(10px); padding: 8px 25px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.2); display: inline-block; font-size: 20px; font-weight: 800; color: var(--glow); }
+
+        #menu {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(15px);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;
+        }
+        #menu h1 { font-size: 38px; text-transform: uppercase; background: linear-gradient(to bottom, #fff, var(--glow)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; }
+        #menu p { color: #888; font-size: 14px; margin-bottom: 30px; }
+
+        .start-btn { padding: 18px 50px; font-size: 18px; background: var(--glow); color: #000; border: none; border-radius: 50px; font-weight: 800; cursor: pointer; text-transform: uppercase; transition: 0.3s; }
+        .start-btn:active { transform: scale(0.95); }
+
+        .controls { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-around; padding: 0 20px; }
+        .btn { width: 85px; height: 85px; background: var(--glass); border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); font-weight: 900; font-size: 12px; }
+        .btn:active { background: var(--glow); color: #000; }
+    </style>
+</head>
+<body>
+
+    <div id="stage">
+        <div class="hud"><div class="score-box">SCORE: <span id="score">0</span></div></div>
+
+        <div id="menu">
+            <h1>TALKNIK MONKEY</h1>
+            <p id="result-msg">Apex Climbing Adventure</p>
+            <button class="start-btn" onclick="init()">START GAME</button>
+        </div>
+
+        <canvas id="c"></canvas>
+
+        <div class="controls">
+            <div class="btn" id="l-btn">LEFT</div>
+            <div class="btn" id="r-btn">RIGHT</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        const menu = document.getElementById('menu');
+        const scoreVal = document.getElementById('score');
+        const resultMsg = document.getElementById('result-msg');
+
+        // Professional Audio Engine (Loads on OneCompiler perfectly)
+        const SFX = {
+            ctx: null,
+            init() { if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+            play(f, t, d) {
+                this.init();
+                const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+                o.connect(g); g.connect(this.ctx.destination);
+                o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime);
+                g.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + d);
+                o.start(); o.stop(this.ctx.currentTime + d);
+            }
+        };
+
+        let player, platforms, active = false, score = 0, dir = { L: false, R: false };
+
+        function resize() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function init() {
+            active = true; score = 0;
+            scoreVal.innerText = "0";
+            menu.style.display = "none";
+            player = { x: canvas.width/2 - 25, y: canvas.height*0.6, w: 50, h: 50, vx: 0, vy: 0 };
+            platforms = [];
+            for(let i=0; i<8; i++) platforms.push({ x: Math.random()*(canvas.width-90), y: i*(canvas.height/8), w: 90, h: 15 });
+            run();
+        }
+
+        function run() {
+            if(!active) return;
+            update();
+            draw();
+            requestAnimationFrame(run);
+        }
+
+        function update() {
+            if(dir.L) player.vx = -canvas.width * 0.02;
+            else if(dir.R) player.vx = canvas.width * 0.02;
+            else player.vx *= 0.85;
+
+            player.x += player.vx;
+            if(player.x < -30) player.x = canvas.width;
+            if(player.x > canvas.width) player.x = -30;
+
+            player.vy += 0.25; 
+            if(player.vy > 3.5) player.vy = 3.5;
+            player.y += player.vy;
+
+            // Collision Logic
+            platforms.forEach(p => {
+                if(player.vy > 0 && player.x+40 > p.x && player.x < p.x+p.w && player.y+50 > p.y && player.y+50 < p.y+20) {
+                    player.vy = -canvas.height * 0.022;
+                    score++; scoreVal.innerText = score;
+                    SFX.play(500, 'sine', 0.1);
+                }
+            });
+
+            // Camera Motion
+            if(player.y < canvas.height * 0.4) {
+                let d = canvas.height * 0.4 - player.y;
+                player.y = canvas.height * 0.4;
+                platforms.forEach(p => {
+                    p.y += d;
+                    if(p.y > canvas.height) { p.y = 0; p.x = Math.random()*(canvas.width-90); }
+                });
+            }
+            if(player.y > canvas.height) die();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Platforms
+            platforms.forEach(p => {
+                ctx.fillStyle = "#3e2723";
+                ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 6); ctx.fill();
+                ctx.fillStyle = "#00ffa3";
+                ctx.fillRect(p.x, p.y, p.w, 3);
+            });
+
+            // Monkey (Drawn with Code for 100% Load Success)
+            const {x, y} = player;
+            ctx.fillStyle = "#ff4b2b"; // Parachute
+            ctx.beginPath(); ctx.arc(x+25, y-35, 42, Math.PI, 0); ctx.fill();
+            
+            ctx.fillStyle = "#6d4c41"; // Body
+            ctx.beginPath(); ctx.arc(x+25, y+25, 20, 0, Math.PI*2); ctx.fill(); // Head
+            ctx.beginPath(); ctx.arc(x+5, y+20, 9, 0, Math.PI*2); ctx.fill(); // L-Ear
+            ctx.beginPath(); ctx.arc(x+45, y+20, 9, 0, Math.PI*2); ctx.fill(); // R-Ear
+            ctx.fillRect(x-5, y+30, 10, 6); ctx.fillRect(x+45, y+30, 10, 6); // Arms
+            ctx.fillRect(x+12, y+45, 8, 14); ctx.fillRect(x+30, y+45, 8, 14); // Legs
+            
+            ctx.strokeStyle = "#6d4c41"; ctx.lineWidth = 3; // Tail
+            ctx.beginPath(); ctx.moveTo(x+25, y+40); ctx.quadraticCurveTo(x+55, y+65, x+65, y+45); ctx.stroke();
+            
+            ctx.fillStyle = "#d7ccc8"; // Face
+            ctx.beginPath(); ctx.arc(x+25, y+32, 12, 0, Math.PI*2); ctx.fill();
+        }
+
+        function die() {
+            active = false;
+            SFX.play(100, 'sawtooth', 0.4);
+            menu.style.display = "flex";
+            resultMsg.innerText = "FINAL SCORE: " + score;
+            document.querySelector('.start-btn').innerText = "RETRY";
+        }
+
+        // Input Setup
+        const setDir = (k, s) => dir[k] = s;
+        document.getElementById('l-btn').onmousedown = () => setDir('L', true);
+        document.getElementById('l-btn').onmouseup = () => setDir('L', false);
+        document.getElementById('l-btn').ontouchstart = (e) => { e.preventDefault(); setDir('L', true); };
+        document.getElementById('l-btn').ontouchend = () => setDir('L', false);
+        document.getElementById('r-btn').onmousedown = () => setDir('R', true);
+        document.getElementById('r-btn').onmouseup = () => setDir('R', false);
+        document.getElementById('r-btn').ontouchstart = (e) => { e.preventDefault(); setDir('R', true); };
+        document.getElementById('r-btn').ontouchend = () => setDir('R', false);
+    </script>
+</body>
+</html>
